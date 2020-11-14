@@ -3,9 +3,10 @@ import mir_eval
 import pretty_midi as pm
 from utils import logger
 from btc_model import *
-from utils.mir_eval_modules import audio_file_to_features, idx2chord, idx2voca_chord, get_audio_paths
+from utils.mir_eval_modules import audio_file_to_features, idx2chord, idx2voca_chord, get_audio_paths_with_id, get_audio_paths
 import argparse
 import warnings
+import pandas as pd
 from sklearn.preprocessing import LabelBinarizer
 warnings.filterwarnings('ignore')
 logger.logging_verbosity(1)
@@ -16,13 +17,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--voca', default=True, type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--audio_dir', type=str, default='./test')
+    parser.add_argument('-src_csv', type=str, help='source csv path with song id', default='empty')
     parser.add_argument('--save_label_one_hot_dir', type=str, default='./test')
     parser.add_argument('--save_dir', type=str, default='./test')
     parser.add_argument('--save_attention_feature_dir', type=str, default='./test')
+    parser.add_argument('--sep', type=str, default='\t', help='sep')
     args = parser.parse_args()
 
     config = HParams.load("run_config.yaml")
-
+    if args.src_csv != 'empty':
+        df = pd.read_csv(args.src_csv, index_col=False, sep=args.sep)
+        songids = list(df['songid'].apply(str))  # obtain all the songs specified in csv that need to extract features
+        audio_paths = get_audio_paths_with_id(args.audio_dir, songids)
+    else:  # if not specified, list all the .wav and .mp3 files
+        audio_paths = get_audio_paths(args.audio_dir)
     if args.voca is True:
         config.feature['large_voca'] = True
         config.model['num_chords'] = 170
@@ -44,8 +52,7 @@ if __name__ == '__main__':
         model.load_state_dict(checkpoint['model'])
         logger.info("restore model")
 
-    # Audio files with format of wav and mp3
-    audio_paths = get_audio_paths(args.audio_dir)
+
 
     # Chord recognition and save lab file
     for i, audio_path in enumerate(audio_paths):
