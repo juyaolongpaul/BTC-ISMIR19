@@ -17,7 +17,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--voca', default=True, type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--audio_dir', type=str, default='./test')
-    parser.add_argument('-src_csv', type=str, help='source csv path with song id', default='empty')
+    parser.add_argument('--src_csv', type=str, help='source csv path with song id', default='empty')
     parser.add_argument('--save_label_one_hot_dir', type=str, default='./test')
     parser.add_argument('--save_dir', type=str, default='./test')
     parser.add_argument('--save_attention_feature_dir', type=str, default='./test')
