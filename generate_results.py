@@ -81,7 +81,7 @@ if __name__ == '__main__':
                 self_attn_output, _ = model.self_attn_layers(feature[:, n_timestep * t:n_timestep * (t + 1), :])
                 prediction, _ = model.output_layer(self_attn_output)
                 prediction = prediction.squeeze()
-                np_prediction = np.array(prediction)
+                np_prediction = prediction.cpu().numpy()
                 # turn it into a 2-d one hot matrix
                 prediction_one_hot = [0] * 170
                 prediction_one_hot[np_prediction[0]] = 1
@@ -91,7 +91,7 @@ if __name__ == '__main__':
                     prediction_one_hot = np.vstack((prediction_one_hot, each_one_hot))
 
                 self_attn_output = self_attn_output.squeeze()
-                np_self_attn_output = np.array(self_attn_output)
+                np_self_attn_output = self_attn_output.cpu().numpy()
                 if t == 0:
                     a_prediction_one_hot = prediction_one_hot
                     a_self_attn_output = np_self_attn_output
