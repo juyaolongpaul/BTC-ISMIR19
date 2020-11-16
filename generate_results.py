@@ -14,111 +14,115 @@ logger.logging_verbosity(1)
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
-def extract_chords_features(args, audio_path, i):
-
+def extract_audio_features(args, audio_path, i):
     # Chord recognition and save lab file
     logger.info("======== %d of %d in progress for feature extraction ========" % (i + 1, len(audio_paths)))
     # Load mp3
-    if not (os.path.isfile(os.path.join(args.save_label_one_hot_dir,
-                                   os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
-                                                                                             '') + '_predicted_one_hot_label.npy')) \
-            and os.path.isfile(os.path.join(args.save_attention_feature_dir,
+    if not os.path.exists(args.save_audio_feature):
+        os.makedirs(args.save_audio_feature)
+    audio_feature_path = os.path.join(args.save_audio_feature,
+                                      os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
+                                                                                                '') + '_chord_audio_feature.npy')
+    if not (os.path.isfile(audio_feature_path) and args.reextract_chords) == 'N':
+        feature, feature_per_second, song_length_second = audio_file_to_features(audio_path, config)
+        with open(audio_feature_path, 'wb') as f_audio_feature:
+            np.save(f_audio_feature, feature)
+        logger.info("audio features saved : %s" % audio_path)
+
+
+def predict_chords_and_features(args):
+    for i, audio_path in enumerate(audio_paths):
+        logger.info("======== %d of %d in progress for chord inference ========" % (i + 1, len(audio_paths)))
+        # Load mp3
+        if not (os.path.isfile(os.path.join(args.save_label_one_hot_dir,
                                             os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
-                                                                                                      '') + '_attention_layer_output.npy')) and args.reextract == 'N'):
-        # if feature already extracted, and unless specified to re-extract features, skip this file
-        if not os.path.exists(args.save_audio_feature):
-            os.makedirs(args.save_audio_feature)
-        audio_feature_path = os.path.join(args.save_audio_feature,
-                                          os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
-                                                                                                    '') + '_chord_audio_feature.npy')
-        if not os.path.isfile(audio_feature_path):
-            feature, feature_per_second, song_length_second = audio_file_to_features(audio_path, config)
-            with open(audio_feature_path, 'wb') as f_audio_feature:
-                np.save(f_audio_feature, feature)
-        else:
+                                                                                                      '') + '_predicted_one_hot_label.npy')) \
+                and os.path.isfile(os.path.join(args.save_attention_feature_dir,
+                                                os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
+                                                                                                          '') + '_attention_layer_output.npy')) and args.reextract_chords == 'N'):  # Skip this file if chords are already extracted
+            # Majmin type chord recognition
+            audio_feature_path = os.path.join(args.save_audio_feature,
+                                      os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
+                                                                                                '') + '_chord_audio_feature.npy')
             feature = np.load(audio_feature_path)
+            logger.info("audio features loaded : %s" % audio_feature_path)
             feature_per_second = config.mp3['inst_len'] / config.model['timestep']
-        logger.info("audio file loaded and feature computation success : %s" % audio_path)
+            feature = feature.T
+            feature = (feature - mean) / std
+            time_unit = feature_per_second
+            n_timestep = config.model['timestep']
+            num_pad = n_timestep - (feature.shape[0] % n_timestep)
+            feature = np.pad(feature, ((0, num_pad), (0, 0)), mode="constant", constant_values=0)
+            num_instance = feature.shape[0] // n_timestep
+            start_time = 0.0
+            lines = []
+            with torch.no_grad():
+                model.eval()
+                feature = torch.tensor(feature, dtype=torch.float32).unsqueeze(0).to(device)
+                for t in range(num_instance):
 
-        # Majmin type chord recognition
-        feature = feature.T
-        feature = (feature - mean) / std
-        time_unit = feature_per_second
-        n_timestep = config.model['timestep']
+                    self_attn_output, _ = model.self_attn_layers(feature[:, n_timestep * t:n_timestep * (t + 1), :])
+                    prediction, _ = model.output_layer(self_attn_output)
+                    prediction = prediction.squeeze()
+                    np_prediction = prediction.cpu().numpy()
+                    # turn it into a 2-d one hot matrix
+                    prediction_one_hot = [0] * 170
+                    prediction_one_hot[np_prediction[0]] = 1
+                    for each_int in np_prediction[1:]:
+                        each_one_hot = [0] * 170
+                        each_one_hot[each_int] = 1
+                        prediction_one_hot = np.vstack((prediction_one_hot, each_one_hot))
 
-        num_pad = n_timestep - (feature.shape[0] % n_timestep)
-        feature = np.pad(feature, ((0, num_pad), (0, 0)), mode="constant", constant_values=0)
-        num_instance = feature.shape[0] // n_timestep
-
-        start_time = 0.0
-        lines = []
-        with torch.no_grad():
-            model.eval()
-            feature = torch.tensor(feature, dtype=torch.float32).unsqueeze(0).to(device)
-            for t in range(num_instance):
-
-                self_attn_output, _ = model.self_attn_layers(feature[:, n_timestep * t:n_timestep * (t + 1), :])
-                prediction, _ = model.output_layer(self_attn_output)
-                prediction = prediction.squeeze()
-                np_prediction = prediction.cpu().numpy()
-                # turn it into a 2-d one hot matrix
-                prediction_one_hot = [0] * 170
-                prediction_one_hot[np_prediction[0]] = 1
-                for each_int in np_prediction[1:]:
-                    each_one_hot = [0] * 170
-                    each_one_hot[each_int] = 1
-                    prediction_one_hot = np.vstack((prediction_one_hot, each_one_hot))
-
-                self_attn_output = self_attn_output.squeeze()
-                np_self_attn_output = self_attn_output.cpu().numpy()
-                if t == 0:
-                    a_prediction_one_hot = prediction_one_hot
-                    a_self_attn_output = np_self_attn_output
-                else:
-                    a_prediction_one_hot = np.vstack((a_prediction_one_hot, prediction_one_hot))
-                    a_self_attn_output = np.vstack((a_self_attn_output, np_self_attn_output))
-                for i in range(n_timestep):
-                    if t == 0 and i == 0:
-                        prev_chord = prediction[i].item()
-                        continue
-                    if prediction[i].item() != prev_chord:
-                        lines.append(
-                            '%.3f %.3f %s\n' % (start_time, time_unit * (n_timestep * t + i), idx_to_chord[prev_chord]))
-                        start_time = time_unit * (n_timestep * t + i)
-                        prev_chord = prediction[i].item()
-                    if t == num_instance - 1 and i + num_pad == n_timestep:
-                        if start_time != time_unit * (n_timestep * t + i):
+                    self_attn_output = self_attn_output.squeeze()
+                    np_self_attn_output = self_attn_output.cpu().numpy()
+                    if t == 0:
+                        a_prediction_one_hot = prediction_one_hot
+                        a_self_attn_output = np_self_attn_output
+                    else:
+                        a_prediction_one_hot = np.vstack((a_prediction_one_hot, prediction_one_hot))
+                        a_self_attn_output = np.vstack((a_self_attn_output, np_self_attn_output))
+                    for i in range(n_timestep):
+                        if t == 0 and i == 0:
+                            prev_chord = prediction[i].item()
+                            continue
+                        if prediction[i].item() != prev_chord:
                             lines.append(
                                 '%.3f %.3f %s\n' % (start_time, time_unit * (n_timestep * t + i), idx_to_chord[prev_chord]))
-                        break
+                            start_time = time_unit * (n_timestep * t + i)
+                            prev_chord = prediction[i].item()
+                        if t == num_instance - 1 and i + num_pad == n_timestep:
+                            if start_time != time_unit * (n_timestep * t + i):
+                                lines.append(
+                                    '%.3f %.3f %s\n' % (start_time, time_unit * (n_timestep * t + i), idx_to_chord[prev_chord]))
+                            break
 
-        # lab file write
-        if not os.path.exists(args.save_dir):
-            os.makedirs(args.save_dir)
-        if not os.path.exists(args.save_label_one_hot_dir):
-            os.makedirs(args.save_label_one_hot_dir)
-        if not os.path.exists(args.save_attention_feature_dir):
-            os.makedirs(args.save_attention_feature_dir)
-        save_path = os.path.join(args.save_dir,
-                                 os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '.lab')
-        with open(save_path, 'w') as f:
-            for line in lines:
-                f.write(line)
+            # lab file write
+            if not os.path.exists(args.save_dir):
+                os.makedirs(args.save_dir)
+            if not os.path.exists(args.save_label_one_hot_dir):
+                os.makedirs(args.save_label_one_hot_dir)
+            if not os.path.exists(args.save_attention_feature_dir):
+                os.makedirs(args.save_attention_feature_dir)
+            save_path = os.path.join(args.save_dir,
+                                     os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '.lab')
+            with open(save_path, 'w') as f:
+                for line in lines:
+                    f.write(line)
 
-        logger.info("label file saved : %s" % save_path)
-        ## output feature
+            logger.info("label file saved : %s" % save_path)
+            ## output feature
 
-        feature_path_predicted_label = os.path.join(args.save_label_one_hot_dir,
-                                 os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '_predicted_one_hot_label.npy')
-        with open(feature_path_predicted_label, 'wb') as f_predicted_label:
-            np.save(f_predicted_label, a_prediction_one_hot)
+            feature_path_predicted_label = os.path.join(args.save_label_one_hot_dir,
+                                     os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '_predicted_one_hot_label.npy')
+            with open(feature_path_predicted_label, 'wb') as f_predicted_label:
+                np.save(f_predicted_label, a_prediction_one_hot)
 
-        logger.info("label one hot predictions saved : %s" % feature_path_predicted_label)
-        feature_path_attention_output = os.path.join(args.save_attention_feature_dir,
-                                 os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '_attention_layer_output.npy')
-        with open(feature_path_attention_output, 'wb') as f_attention_output:
-            np.save(f_attention_output, a_self_attn_output)
-        logger.info("attention embedding features saved : %s" % feature_path_attention_output)
+            logger.info("label one hot predictions saved : %s" % feature_path_predicted_label)
+            feature_path_attention_output = os.path.join(args.save_attention_feature_dir,
+                                     os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '_attention_layer_output.npy')
+            with open(feature_path_attention_output, 'wb') as f_attention_output:
+                np.save(f_attention_output, a_self_attn_output)
+            logger.info("attention embedding features saved : %s" % feature_path_attention_output)
 
 
 if __name__ == '__main__':
@@ -134,7 +138,8 @@ if __name__ == '__main__':
     parser.add_argument('--sep', type=str, default='\t', help='sep')
     parser.add_argument('--need_multithreads', type=str, default='N', help='specify whether multi-threading is needed')
     parser.add_argument('--n_thread', type=int, default=8, help='thread number')
-    parser.add_argument('--reextract', type=str, default='N', help='specify whether to re-extract features')
+    parser.add_argument('--reextract_chords', type=str, default='N', help='specify whether to re-extract chords')
+    parser.add_argument('--reextract_features', type=str, default='N', help='specify whether to re-extract audio features')
     args = parser.parse_args()
 
     config = HParams.load("run_config.yaml")
@@ -168,7 +173,7 @@ if __name__ == '__main__':
         jobs = []
         pool = Pool(args.n_thread)
         for i, audio_path in enumerate(audio_paths):
-            p = Process(target=extract_chords_features, args=(args, audio_path, i))
+            p = Process(target=extract_audio_features, args=(args, audio_path, i))
             jobs.append(p)
             p.start()
             # pool.apply_async(extract_chords, args=(args, audio_path, i))
@@ -176,5 +181,6 @@ if __name__ == '__main__':
         # pool.join()
     else:
         for i, audio_path in enumerate(audio_paths):
-            extract_chords_features(args, audio_path, i)
+            extract_audio_features(args, audio_path, i)
+    predict_chords_and_features(args)
 
