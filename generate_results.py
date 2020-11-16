@@ -4,7 +4,6 @@ import pretty_midi as pm
 from utils import logger
 from btc_model import *
 from utils.mir_eval_modules import audio_file_to_features, idx2chord, idx2voca_chord, get_audio_paths_with_id, get_audio_paths
-from multiprocessing import Pool, Process
 import argparse
 import warnings
 import pandas as pd
@@ -13,21 +12,6 @@ warnings.filterwarnings('ignore')
 logger.logging_verbosity(1)
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
-
-def extract_audio_features(args, audio_path, i):
-    # Chord recognition and save lab file
-    logger.info("======== %d of %d in progress for feature extraction ========" % (i + 1, len(audio_paths)))
-    # Load mp3
-    if not os.path.exists(args.save_audio_feature):
-        os.makedirs(args.save_audio_feature)
-    audio_feature_path = os.path.join(args.save_audio_feature,
-                                      os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
-                                                                                                '') + '_chord_audio_feature.npy')
-    if not (os.path.isfile(audio_feature_path) and args.reextract_chords) == 'N':
-        feature, feature_per_second, song_length_second = audio_file_to_features(audio_path, config)
-        with open(audio_feature_path, 'wb') as f_audio_feature:
-            np.save(f_audio_feature, feature)
-        logger.info("audio features saved : %s" % audio_path)
 
 
 def predict_chords_and_features(args):
@@ -41,7 +25,7 @@ def predict_chords_and_features(args):
                                                 os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
                                                                                                           '') + '_attention_layer_output.npy')) and args.reextract_chords == 'N'):  # Skip this file if chords are already extracted
             # Majmin type chord recognition
-            audio_feature_path = os.path.join(args.save_audio_feature,
+            audio_feature_path = os.path.join(args.read_audio_feature,
                                       os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
                                                                                                 '') + '_chord_audio_feature.npy')
             feature = np.load(audio_feature_path)
@@ -60,7 +44,6 @@ def predict_chords_and_features(args):
                 model.eval()
                 feature = torch.tensor(feature, dtype=torch.float32).unsqueeze(0).to(device)
                 for t in range(num_instance):
-
                     self_attn_output, _ = model.self_attn_layers(feature[:, n_timestep * t:n_timestep * (t + 1), :])
                     prediction, _ = model.output_layer(self_attn_output)
                     prediction = prediction.squeeze()
@@ -134,12 +117,9 @@ if __name__ == '__main__':
     parser.add_argument('--save_label_one_hot_dir', type=str, default='./test')
     parser.add_argument('--save_dir', type=str, default='./test')
     parser.add_argument('--save_attention_feature_dir', type=str, default='./test')
-    parser.add_argument('--save_audio_feature', type=str, default='./test')
+    parser.add_argument('--read_audio_feature', type=str, default='./test')
     parser.add_argument('--sep', type=str, default='\t', help='sep')
-    parser.add_argument('--need_multithreads', type=str, default='N', help='specify whether multi-threading is needed')
-    parser.add_argument('--n_thread', type=int, default=8, help='thread number')
-    parser.add_argument('--reextract_chords', type=str, default='N', help='specify whether to re-extract chords')
-    parser.add_argument('--reextract_features', type=str, default='N', help='specify whether to re-extract audio features')
+    parser.add_argument('--reextract_chords', type=str, default='Y', help='specify whether to re-extract chords')
     args = parser.parse_args()
 
     config = HParams.load("run_config.yaml")
@@ -169,18 +149,5 @@ if __name__ == '__main__':
         std = checkpoint['std']
         model.load_state_dict(checkpoint['model'])
         logger.info("restore model")
-    if args.need_multithreads == 'Y':
-        jobs = []
-        pool = Pool(args.n_thread)
-        for i, audio_path in enumerate(audio_paths):
-            p = Process(target=extract_audio_features, args=(args, audio_path, i))
-            jobs.append(p)
-            p.start()
-            # pool.apply_async(extract_chords, args=(args, audio_path, i))
-        # pool.close()
-        # pool.join()
-    else:
-        for i, audio_path in enumerate(audio_paths):
-            extract_audio_features(args, audio_path, i)
     predict_chords_and_features(args)
 
