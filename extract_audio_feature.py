@@ -49,7 +49,7 @@ if __name__ == '__main__':
         audio_paths = get_audio_paths(args.audio_dir)
 
     if args.need_multithreads == 'Y':
-        jobs = []
+        # jobs = []
         pool = Pool(args.n_thread)
         for i, audio_path in enumerate(audio_paths):
             # p = Process(target=extract_audio_features, args=(args, audio_path, i))

@@ -15,7 +15,7 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 
 def predict_chords_and_features(args):
-    f_missing = open('missing_files.txt', 'w')
+    f_missing = open('missing_files.txt', 'a')
     for i, audio_path in enumerate(audio_paths):
         logger.info("======== %d of %d in progress for chord inference ========" % (i + 1, len(audio_paths)))
         # Load mp3
