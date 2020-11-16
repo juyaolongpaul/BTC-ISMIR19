@@ -22,6 +22,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_dir', type=str, default='./test')
     parser.add_argument('--save_attention_feature_dir', type=str, default='./test')
     parser.add_argument('--sep', type=str, default='\t', help='sep')
+    parser.add_argument('--reextract', type=str, default='N', help='specify whether to re-extract features')
     args = parser.parse_args()
 
     config = HParams.load("run_config.yaml")
@@ -58,6 +59,10 @@ if __name__ == '__main__':
     for i, audio_path in enumerate(audio_paths):
         logger.info("======== %d of %d in progress ========" % (i + 1, len(audio_paths)))
         # Load mp3
+        if os.path.isfile(os.path.join(args.save_label_one_hot_dir,
+                                 os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '_predicted_one_hot_label.npy')) \
+                          and os.path.isfile(os.path.join(args.save_attention_feature_dir, os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '_attention_layer_output.npy')) and args.reextract == 'N':
+            continue  # if feature already extracted, and unless specified to re-extract features, skip this file
         feature, feature_per_second, song_length_second = audio_file_to_features(audio_path, config)
         logger.info("audio file loaded and feature computation success : %s" % audio_path)
 
@@ -128,13 +133,13 @@ if __name__ == '__main__':
 
         logger.info("label file saved : %s" % save_path)
         ## output feature
-        feature_path_predicted_label = os.path.join(args.save_dir,
+        feature_path_predicted_label = os.path.join(args.save_label_one_hot_dir,
                                  os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '_predicted_one_hot_label.npy')
         with open(feature_path_predicted_label, 'wb') as f_predicted_label:
             np.save(f_predicted_label, a_prediction_one_hot)
 
         logger.info("label one hot predictions saved : %s" % feature_path_predicted_label)
-        feature_path_attention_output = os.path.join(args.save_dir,
+        feature_path_attention_output = os.path.join(args.save_attention_feature_dir,
                                  os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav', '') + '_attention_layer_output.npy')
         with open(feature_path_attention_output, 'wb') as f_attention_output:
             np.save(f_attention_output, a_self_attn_output)
