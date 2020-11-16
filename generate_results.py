@@ -15,6 +15,7 @@ device = torch.device("cuda" if use_cuda else "cpu")
 
 
 def predict_chords_and_features(args):
+    f_missing = open('missing_files.txt', 'w')
     for i, audio_path in enumerate(audio_paths):
         logger.info("======== %d of %d in progress for chord inference ========" % (i + 1, len(audio_paths)))
         # Load mp3
@@ -28,7 +29,11 @@ def predict_chords_and_features(args):
             audio_feature_path = os.path.join(args.read_audio_feature,
                                       os.path.split(audio_path)[-1].replace('.mp3', '').replace('.wav',
                                                                                                 '') + '_chord_audio_feature.npy')
-            feature = np.load(audio_feature_path)
+            try:
+                feature = np.load(audio_feature_path)
+            except:
+                print(audio_feature_path, file=f_missing)
+                continue
             logger.info("audio features loaded : %s" % audio_feature_path)
             feature_per_second = config.mp3['inst_len'] / config.model['timestep']
             feature = feature.T
@@ -106,6 +111,7 @@ def predict_chords_and_features(args):
             with open(feature_path_attention_output, 'wb') as f_attention_output:
                 np.save(f_attention_output, a_self_attn_output)
             logger.info("attention embedding features saved : %s" % feature_path_attention_output)
+    f_missing.close()
 
 
 if __name__ == '__main__':
